@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "datscan-mri: MRI-guided regional analysis of 123I-FP-CIT SPECT/CT"
+version: 0.1.0
+date-released: 2026-11-06
+license: MIT
+type: software
+authors:
+  - name: "Steps Ventures"

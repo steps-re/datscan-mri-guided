@@ -1,0 +1,20 @@
+{
+  "_comment": "Reference case. The AC was picked by eye on the registered MRI (sagittal views), DICOM LPS mm in the SPECT/CT frame. Every case-tuned value (segmentation thresholds and boxes, intensity convention, AC-estimate offset) is pinned here so the reference result does not move if a package default changes. The MRI is used in its own N4-corrected units (normalize_p90 false); on this case normalisation would give a scale of 1.000 because reference_p90 was measured on it.",
+  "ac_lps_mm": [-0.2373046875, -205.2373046875, 63.0],
+  "segmenter": {"method": "synthseg", "synthseg": {"home": "~/code/_vendor/synthseg-fs7.4.1", "robust": false, "threads": 8},
+                "_comment": "SynthSeg 2.0 (FreeSurfer 7.4.1 mri_synthseg) is the default striatal segmenter for this case since v3; the hand-tuned threshold method below still runs as a comparison and segmentation-sweep variant. DATSCAN_SYNTHSEG_HOME overrides home. Use \"method\": \"threshold\" (or --segmenter threshold) to reproduce v2."},
+  "ac_from_ic_centroid": [7.65, -27.18, 0.0],
+  "intensity": {"normalize_p90": false, "reference_p90": 190.65180206298828},
+  "ventricles": {"smooth_sigma": 1.0, "csf_lo": 25, "csf_hi": 110, "open_iter": 2,
+                 "box": [[-18, 42], [-38, 67], [-39, 41]], "seed": [12, 2, -14]},
+  "putamen": {"smooth_sigma": 1.0, "z": [-16, 10], "y": [-21, 24], "scan_start": 50,
+              "csf_thr": 135, "csf_min_mid": 22, "max_lat": 46, "csf_dvent": 4, "lat_gap": 3,
+              "lo": 150, "hi": 194, "dvent": 3, "min_mid": 14, "max_w": 13, "min_w": 3,
+              "low_z": -7, "max_lat_low_L": 34, "open_iter": 1, "close_iter": 2},
+  "caudate": {"smooth_sigma": 1.0, "z": [-9, 14], "y": [-24, 12], "wall_split_R": 3, "wall_split_L": -3,
+              "lo": 120, "hi": 196, "max_w": 5, "min_w": 2, "mean_max": 190,
+              "close_iter": 1, "drop_post_inferior": [0, 4]},
+  "regions": {"smooth_sigma": 0.7, "csf_hi": 105, "gm_hi": 158, "z_min": -60,
+              "occ": {"y_min": 77, "z": [-8, 42]}, "cer": {"y_min": 47, "z_max": -26, "mid_gap": 8},
+              "deep": {"x": [-29, 31], "y": [-13, 42], "z": [-28, 12]}, "head_hu": -300}
+}

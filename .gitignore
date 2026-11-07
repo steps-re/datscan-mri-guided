@@ -1,0 +1,13 @@
+private/
+*.nii
+*.nii.gz
+*.dcm
+.venv/
+__pycache__/
+.env
+*.egg-info/
+.pytest_cache/
+examples/out/
+build/
+dist/
+*.tfm
