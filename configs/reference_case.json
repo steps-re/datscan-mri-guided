@@ -1,8 +1,8 @@
 {
   "_comment": "Reference case. The AC was picked by eye on the registered MRI (sagittal views), DICOM LPS mm in the SPECT/CT frame. Every case-tuned value (segmentation thresholds and boxes, intensity convention, AC-estimate offset) is pinned here so the reference result does not move if a package default changes. The MRI is used in its own N4-corrected units (normalize_p90 false); on this case normalisation would give a scale of 1.000 because reference_p90 was measured on it.",
   "ac_lps_mm": [-0.2373046875, -205.2373046875, 63.0],
-  "segmenter": {"method": "synthseg", "synthseg": {"home": "~/code/_vendor/synthseg-fs7.4.1", "robust": false, "threads": 8},
-                "_comment": "SynthSeg 2.0 (FreeSurfer 7.4.1 mri_synthseg) is the default striatal segmenter for this case since v3; the hand-tuned threshold method below still runs as a comparison and segmentation-sweep variant. DATSCAN_SYNTHSEG_HOME overrides home. Use \"method\": \"threshold\" (or --segmenter threshold) to reproduce v2."},
+  "segmenter": {"method": "synthseg", "synthseg": {"home": "<SYNTHSEG_HOME>", "robust": false, "threads": 8},
+                "_comment": "SynthSeg 2.0 (FreeSurfer 7.4.1 mri_synthseg) is the default striatal segmenter for this case since v3; the hand-tuned threshold method below still runs as a comparison and segmentation-sweep variant. <SYNTHSEG_HOME> is a placeholder for the SynthSeg install folder (README, Install): set DATSCAN_SYNTHSEG_HOME, which overrides home, or edit it here. Use \"method\": \"threshold\" (or --segmenter threshold) to reproduce v2."},
   "ac_from_ic_centroid": [7.65, -27.18, 0.0],
   "intensity": {"normalize_p90": false, "reference_p90": 190.65180206298828},
   "ventricles": {"smooth_sigma": 1.0, "csf_lo": 25, "csf_hi": 110, "open_iter": 2,

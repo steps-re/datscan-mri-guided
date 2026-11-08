@@ -130,7 +130,19 @@ DEFAULTS: dict = {
     # normal-gradient null produces (over FWHM, binding level, background, anatomical
     # volume and true P/A 0.80-0.88) by more than this margin.
     "decision": {"margin": 0.05},
-    "robustness": {"shift_mm": 2.0, "rot_deg": 2.0, "split_shift_mm": 4, "erode_mm": 1, "gtm_fwhm": 11},
+    "robustness": {"shift_mm": 2.0, "rot_deg": 2.0, "split_shift_mm": 4, "erode_mm": 1, "gtm_fwhm": 11,
+                   "combined_shift_mm": 4, "combined_shift_step_mm": 2},
+    # SPECT-to-anatomy alignment check (datscan_mri/alignment.py): integer-mm SPECT
+    # translation maximising the correlation with the simulated null inside each
+    # dilated mask. The caudate-only fit is primary (the caudate is not part of the
+    # posterior-putamen hypothesis). If its best shift exceeds `warn_shift_mm`
+    # (Euclidean, mm) a loud warning is written; gate "stop" makes it a QC failure.
+    "alignment_qc": {"enabled": True, "search_mm": 7, "dilate_mm": 4,
+                     "masks": {"caudate only": [1, 2], "caudate + anterior putamen": [1, 2, 3, 4],
+                               "striatum": [1, 2, 3, 4, 5, 6]},
+                     "targets": ["normal_gradient", "uniform"],
+                     "primary_mask": "caudate only", "primary_target": "normal_gradient",
+                     "warn_shift_mm": 3.0, "gate": "warn"},
     "trim_mm": [8, 9, 10, 12, 13],
 }
 

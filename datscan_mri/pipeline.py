@@ -14,7 +14,7 @@ import SimpleITK as sitk
 from scipy import ndimage as nd
 
 from . import profile as prof
-from . import external, pvc, register, robustness, segment, simulate
+from . import alignment, external, pvc, register, robustness, segment, simulate
 from .io import sitk_to_ras_affine, write_clean_nifti
 from .segment import GTM_IDS
 
@@ -205,7 +205,7 @@ def null_rows(bases: dict, P: dict, name: str, labmap, valid, true_pas, vols=Non
         v = bases[vol].voi_values(fw, name, bg, sbr, csbr, t)
         r, l = _pa(v, labmap, valid)
         rows.append({"anatomical_putamen": _vkey(vol), "fwhm_mm": fw, "background": bgn, "true_putamen_sbr": sbr,
-                     "true_post_ant": 1.0 if t is None else t, "R": r, "L": l})
+                     "true_caudate_sbr": csbr, "true_post_ant": 1.0 if t is None else t, "R": r, "L": l})
     return rows
 
 
@@ -215,6 +215,12 @@ def _range(rows):
 
 def _measured(s, labmap, valid):
     return _pa(dict(zip(GTM_IDS, prof.voi_means(s, labmap, valid, GTM_IDS))), labmap, valid)
+
+
+def _measured_main(s, labmap, valid):
+    """Measured P/A (R, L) computed exactly like res["uncorrected"]["occ"] (the decision value)."""
+    m = prof.metrics(dict(zip(GTM_IDS, prof.voi_means(s, labmap, valid, GTM_IDS))), labmap, valid)["occ"]
+    return m["R"]["post_ant"], m["L"]["post_ant"]
 
 
 def analyze(anat: Anatomy, spect: sitk.Image, P: dict, do_robustness=True, do_sweeps=True, log=print,
@@ -381,16 +387,41 @@ def analyze(anat: Anatomy, spect: sitk.Image, P: dict, do_robustness=True, do_sw
                               bases[nominal].slopes(t0))
     kw = dict(slab=P["profile"]["slab_mm"], min_voxels=P["profile"]["min_voxels"])
     p = prof.slab_profile(s, lab, valid, Yi, ac[1], **kw)
-    for tag, img in (("sim", sim_u), ("simng", sim_g)):
-        ps = prof.slab_profile(img, lab, valid, Yi, ac[1], **kw)
-        p[f"{tag}_R"], p[f"{tag}_L"] = ps["R"], ps["L"]
-        for side in "RL":   # simulation scaled to the patient's peak slab, for display
-            pr, sm = np.array(p[side]), np.array(ps[side])
+    # lowest normal-gradient expectation: the assumption row giving the minimum, per side
+    vol_of = {_vkey(v): v for v in vols}
+    bg_all = {"default": S["background"], **S.get("background_alternatives", {})}
+    low_rows, sim_low = {}, {}
+    for side in "RL":
+        r = min(ng_rows, key=lambda q: q[side])
+        low_rows[side] = r
+        v = vol_of[r["anatomical_putamen"]]
+        sim_low[side] = simulate.simulate(act_labs[v], dy, r["fwhm_mm"], r["true_putamen_sbr"], r["true_caudate_sbr"],
+                                          bg_all[r["background"]], bases[v].slopes(r["true_post_ant"]))
+    curves = {"sim": {sd: sim_u for sd in "RL"}, "simng": {sd: sim_g for sd in "RL"}, "simnglow": sim_low}
+    for tag, imgs in curves.items():
+        for side in "RL":   # display scaling: voxel-weighted anterior-window mean (not the peak slab)
+            ps = prof.slab_profile(imgs[side], lab, valid, Yi, ac[1], **kw)
+            p[f"{tag}_{side}"] = ps[side]
+            p[f"{tag}_{side}_scaled"], p[f"{tag}_{side}_scale"] = prof.scale_to_anterior(
+                p[side], ps[side], p["mm_from_ac"], p[f"{side}_n"])
+            pr, sm = np.array(p[side]), np.array(ps[side])   # legacy peak scaling, kept only for profile.json
             k = int(np.nanargmax(pr))
-            p[f"{tag}_{side}_scaled"] = (sm * pr[k] / sm[k]).tolist()
+            p[f"{tag}_{side}_peak_scaled"] = (sm * pr[k] / sm[k]).tolist()
+    p["scaling"] = ("simulated curves (*_scaled) are multiplied, per side, by the ratio of the voxel-weighted "
+                    "mean of the measured and simulated slabs anterior to the AC; *_peak_scaled is the old "
+                    "peak-slab scaling, kept for compatibility, do not use for display")
     p["sim_fwhm_mm"] = S["fwhm_profile"]
     p["simng_true_post_ant"] = t0
+    p["simnglow_assumption"] = {sd: {k: v for k, v in r.items() if k not in ("R", "L")} for sd, r in low_rows.items()}
+    p["simnglow_expected_post_ant"] = {sd: low_rows[sd][sd] for sd in "RL"}
     res["profile"] = p
+
+    # ---- SPECT-to-anatomy alignment check
+    if P["alignment_qc"]["enabled"]:
+        log("alignment QC: SPECT translation search against the simulated nulls...")
+        res["alignment_qc"] = alignment.check(sg, fov, SL, lab, {"uniform": sim_u, "normal_gradient": sim_g},
+                                              _measured_main, {sd: exp_ng[sd][0] for sd in "RL"}, P["alignment_qc"])
+        _alignment_gate(res, P, log)
 
     # ---- posterior tail trimmed
     res["trimmed"] = []
@@ -418,11 +449,34 @@ def analyze(anat: Anatomy, spect: sitk.Image, P: dict, do_robustness=True, do_sw
         rob = robustness.run(spect, anat.grid, SL, lab, valid, variants, center, P)
         rob["post_ant_ranges_uncorrected_occ"] = robustness.ranges(rob, "uncorrected")
         rob["post_ant_ranges_gtm_occ"] = robustness.ranges(rob, f"gtm{R['gtm_fwhm']:g}")
+        rob["combined_shift_grid"] = robustness.combined_shift_grid(
+            sg, fov, SL, lab, _measured_main, R["combined_shift_mm"], R["combined_shift_step_mm"])
         res["robustness"] = rob
     res["_sg"] = sg  # stripped before JSON
     res["_sim"] = {"uniform": _pad(sim_u, SL, sg.shape), "normal_gradient": _pad(sim_g, SL, sg.shape)}
     res["_fov"] = fov
     return res
+
+
+def _alignment_gate(res, P, log=print):
+    aq = res["alignment_qc"]
+    if not aq["shift_exceeds_limit"]:
+        return
+    res.setdefault("warnings", []).append(aq["warning"])
+    bar = "!" * 78
+    log(f"{bar}\nWARNING: {aq['warning']}\n{bar}")
+    if P["alignment_qc"]["gate"] == "stop":
+        raise QCError(aq["warning"] + " (alignment_qc.gate = 'stop'; set it to 'warn' to continue)")
+
+
+def alignment_qc(anat: Anatomy, spect: sitk.Image, P: dict, sims: dict, exp_ng_low: dict) -> dict:
+    """The alignment check alone, for a SPECT on an existing anatomy.
+    sims: {"uniform"|"normal_gradient": full-grid simulated null} (as in res["_sim"])."""
+    SL = _crop(anat.lab, P["analysis"]["crop_margin"])
+    sg = register.to_grid(spect, anat.grid, None, sitk.sitkLinear, 0)
+    fov = register.spect_fov_mask(spect, anat.grid)
+    return alignment.check(sg, fov, SL, anat.lab[SL], {k: v[SL] for k, v in sims.items()}, _measured_main,
+                           exp_ng_low, P["alignment_qc"])
 
 
 def measured_variants(anat: Anatomy, spect: sitk.Image, P: dict, cache: dict) -> dict:

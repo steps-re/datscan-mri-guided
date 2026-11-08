@@ -85,21 +85,29 @@ def fig_profile(res, path):
     plt = _plt()
     p = res["profile"]
     x = np.array(p["mm_from_ac"])
-    fig, ax = plt.subplots(figsize=(9, 5.2))
+    fig, ax = plt.subplots(figsize=(9, 7.4))
     for side, col, name in (("R", "tab:red", "Right"), ("L", "tab:purple", "Left")):
         ax.plot(x, p[side], "o-", color=col, label=f"{name} putamen, measured")
         ax.plot(x, p[f"simng_{side}_scaled"], "--", color=col, alpha=0.7,
-                label=f"{name}, normal-gradient simulation (true P/A {p['simng_true_post_ant']}), scaled to peak")
+                label=f"{name}, normal gradient, nominal (true P/A {p['simng_true_post_ant']}, "
+                      f"{p['sim_fwhm_mm']:g} mm)")
+        if f"simnglow_{side}_scaled" in p:
+            a = p["simnglow_assumption"][side]
+            ax.plot(x, p[f"simnglow_{side}_scaled"], "-.", color=col, alpha=0.9, lw=1.6,
+                    label=(f"{name}, normal gradient, LOWEST-expectation assumption (true P/A "
+                           f"{a['true_post_ant']:g}, {a['fwhm_mm']:g} mm, {a['anatomical_putamen']}, "
+                           f"bg {a['background']}; expected P/A {p['simnglow_expected_post_ant'][side]:.2f})"))
         ax.plot(x, p[f"sim_{side}_scaled"], ":", color=col, alpha=0.5,
-                label=f"{name}, uniform-binding simulation, scaled to peak")
+                label=f"{name}, uniform binding (lenient)")
     ax.axvline(0, color="k", ls=":", lw=0.8)
     ax.text(0.5, ax.get_ylim()[0] + 0.05, "AC plane (anterior | posterior split)", fontsize=8)
     ax.set_xlabel("mm posterior to the anterior commissure (2-mm coronal slabs)")
     ax.set_ylabel("uncorrected SBR (occipital grey reference)")
     ax.grid(alpha=0.3)
-    ax.legend(fontsize=7)
-    ax.set_title(f"Uptake along the MRI-defined putamen vs. simulations ({p['sim_fwhm_mm']:g} mm FWHM, "
-                 "binding in the anatomical putamen)", fontsize=9)
+    ax.legend(fontsize=7, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=1, frameon=False)
+    ax.set_title("Uptake along the MRI-defined putamen vs. simulations (binding in the anatomical putamen).\n"
+                 "Simulations scaled per side to the voxel-weighted mean of the measured slabs ANTERIOR to the AC",
+                 fontsize=9)
     plt.tight_layout()
     plt.savefig(path, dpi=90)
     plt.close(fig)
@@ -155,6 +163,20 @@ def ratio_rows(res):
         r = res["robustness"]["post_ant_ranges_uncorrected_occ"]
         rows.append(("Perturbations, rigid only (12), measured (range)", tuple(r["R"]["rigid_only"]), tuple(r["L"]["rigid_only"])))
         rows.append(("Perturbations, all (+split +/-4 mm, 1-mm erosion), measured (range)", tuple(r["R"]["all"]), tuple(r["L"]["all"])))
+    if "combined_shift_grid" in res.get("robustness", {}):
+        r = res["robustness"]["combined_shift_grid"]["range"]
+        rows.append(("SPECT shifted on all axes, -4..4 mm step 2 (125), measured (range)", tuple(r["R"]), tuple(r["L"])))
+    if "alignment_qc" in res:
+        aq = res["alignment_qc"]
+        rows.append(("Alignment QC: as registered, measured", aq["as_registered"]["post_ant"]["R"],
+                     aq["as_registered"]["post_ant"]["L"]))
+        for f in aq["fits"]:
+            if f["target"] != aq["primary_target"]:
+                continue
+            x, y, z = f["best_shift_mm_xyz"]
+            star = " (primary)" if f["mask"] == aq["primary_mask"] else ""
+            rows.append((f"Alignment QC: at best-fit SPECT shift ({x:+d},{y:+d},{z:+d}) mm, {f['mask']} fit{star}",
+                         f["post_ant"]["R"], f["post_ant"]["L"]))
     for t in res["trimmed"]:
         rows.append((f"Posterior tail trimmed {t['trim_mm']} mm: measured / normal-gradient expectation",
                      (t["measured"]["R"]["post_ant"], t["expected_normal_gradient"]["R"]["post_ant"]),
@@ -180,7 +202,11 @@ def fig_ratio_table(res, path):
     t.auto_set_font_size(False)
     t.set_fontsize(9)
     t.scale(1, 1.35)
-    ax.set_title("Posterior/anterior putamen ratio. " + DISCLAIMER, fontsize=8)
+    warn = ""
+    if res.get("alignment_qc", {}).get("shift_exceeds_limit"):
+        warn = "WARNING: SPECT-to-anatomy alignment check failed (see alignment_qc in results.json).\n"
+    ax.set_title(warn + "Posterior/anterior putamen ratio.\n" + DISCLAIMER, fontsize=8,
+                 color="red" if warn else "black")
     plt.tight_layout()
     plt.savefig(path, dpi=110)
     plt.close(fig)

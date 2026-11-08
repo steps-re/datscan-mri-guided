@@ -76,12 +76,22 @@ def export_viewer(mg, ct, sg, lab, ic, ac, direction, dest, results=None, figure
                 "slabs": [{"mm_from_ac": p["mm_from_ac"][i],
                            "R_measured": p["R"][i], "L_measured": p["L"][i],
                            "R_simulated": p["sim_R"][i], "L_simulated": p["sim_L"][i],
-                           "R_simulated_scaled_to_peak": p["sim_R_scaled"][i],
-                           "L_simulated_scaled_to_peak": p["sim_L_scaled"][i],
+                           "R_simulated_scaled_to_peak": p.get("sim_R_peak_scaled", p["sim_R_scaled"])[i],
+                           "L_simulated_scaled_to_peak": p.get("sim_L_peak_scaled", p["sim_L_scaled"])[i],
+                           "R_simulated_scaled_to_anterior_mean": p["sim_R_scaled"][i],
+                           "L_simulated_scaled_to_anterior_mean": p["sim_L_scaled"][i],
                            "R_simulated_normal_gradient": p["simng_R"][i],
                            "L_simulated_normal_gradient": p["simng_L"][i],
-                           "R_simulated_normal_gradient_scaled_to_peak": p["simng_R_scaled"][i],
-                           "L_simulated_normal_gradient_scaled_to_peak": p["simng_L_scaled"][i],
+                           "R_simulated_normal_gradient_scaled_to_peak": p.get("simng_R_peak_scaled",
+                                                                                p["simng_R_scaled"])[i],
+                           "L_simulated_normal_gradient_scaled_to_peak": p.get("simng_L_peak_scaled",
+                                                                                p["simng_L_scaled"])[i],
+                           "R_simulated_normal_gradient_scaled_to_anterior_mean": p["simng_R_scaled"][i],
+                           "L_simulated_normal_gradient_scaled_to_anterior_mean": p["simng_L_scaled"][i],
+                           "R_simulated_normal_gradient_lowest_scaled_to_anterior_mean":
+                               p.get("simnglow_R_scaled", [None] * (i + 1))[i],
+                           "L_simulated_normal_gradient_lowest_scaled_to_anterior_mean":
+                               p.get("simnglow_L_scaled", [None] * (i + 1))[i],
                            "R_voxels": p["R_n"][i], "L_voxels": p["L_n"][i]}
                           for i in range(len(p["mm_from_ac"]))]}
         json.dump(prof, open(dest / "profile.json", "w"), indent=1)

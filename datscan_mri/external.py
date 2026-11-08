@@ -99,6 +99,9 @@ def _home(cfg, tool):
     h = os.environ.get(f"DATSCAN_{tool.upper()}_HOME") or cfg.get("home")
     if not h:
         raise SegmenterError(f"{tool} not configured: set segmenter.{tool}.home or DATSCAN_{tool.upper()}_HOME")
+    if h.startswith("<") and h.endswith(">"):   # placeholder left in a shared config
+        raise SegmenterError(f"{tool} home is the placeholder {h}: set DATSCAN_{tool.upper()}_HOME (or "
+                             f"segmenter.{tool}.home) to the install folder")
     h = Path(os.path.expanduser(h))
     if not h.is_dir():
         raise SegmenterError(f"{tool} home {h} does not exist")

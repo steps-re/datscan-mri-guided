@@ -30,9 +30,10 @@ This tool uses the patient's own MRI instead:
 6. **decision**: a posterior loss is called only if the measured P/A is below the lowest normal-gradient expectation by more than 0.05.
 7. **sweeps**: the measurement VOI is grown or shrunk by −2 to +6 mm (whole putamen, and posterior VOI only) with the simulated binding held fixed, the anterior/posterior split is moved ±4 mm, and the putamen thresholds are shifted (lo ±10, hi ±6, which rebuilds both the VOI and the anatomical putamen). The gap between measured and expected is reported for every variant.
 8. **pvc**: geometric transfer matrix (GTM) partial-volume correction at 9, 11 and 13 mm FWHM (assumes uniform activity within each VOI).
-9. **robustness**: 12 rigid SPECT-vs-VOI perturbations (±2 mm, ±2° per axis) and a 1-mm VOI erosion (measured ratio only).
-10. **report**: `results.json` and five figures (registration overlay, segmentation, profile vs both simulations, ratio table, VOI sweep).
-11. **export**: de-identified full-field-of-view NIfTIs (MRI, SPECT, CT, labels, and the two simulated nulls as derived layers) on the common grid with the AC at the origin, plus `profile.json` and `geometry.json`. `add-flair` registers a same-session FLAIR into that space.
+9. **robustness**: 12 rigid SPECT-vs-VOI perturbations (±2 mm, ±2° per axis), a combined-translation grid (every shift of −4, −2, 0, +2, +4 mm on all three axes at once, 125 shifts) and a 1-mm VOI erosion (measured ratio only).
+10. **alignment QC** (SPECT vs anatomy, `datscan_mri/alignment.py`): the registration QC only checks the MRI against the CT. This step checks the SPECT against the anatomy. It searches integer-mm translations of the SPECT (±7 mm per axis by default) for the one that maximises the Pearson correlation with the simulated null (normal gradient and uniform) inside a mask dilated by 4 mm. Three masks are fitted: caudate only (primary, because the caudate is not part of the posterior-putamen hypothesis), caudate + anterior putamen, and whole striatum. At each best-fit shift the P/A is re-measured with the main measurement (the FOV mask moves with the SPECT, and the occipital reference is re-measured), together with its gap against the lowest normal-gradient expectation. Results go in `results.json` under `alignment_qc`. If the caudate-only best shift exceeds 3 mm (Euclidean), a loud warning is printed, written to `warnings` in `results.json` and shown in red on figure 4. `alignment_qc.gate: "stop"` turns it into a QC failure. `scripts/add_alignment_qc.py` adds the check to a finished run without rerunning it.
+11. **report**: `results.json` and five figures (registration overlay, segmentation, profile vs the simulations, ratio table, VOI sweep). In the profile figure each simulated curve is scaled, per side, to the voxel-weighted mean of the measured slabs anterior to the AC (earlier versions scaled to the peak slab, which anchored on the front tip). It shows the nominal normal gradient (0.84, 12 mm) and the assumption that gives the lowest normal-gradient expectation, which is the one the decision compares against.
+12. **export**: de-identified full-field-of-view NIfTIs (MRI, SPECT, CT, labels, and the two simulated nulls as derived layers) on the common grid with the AC at the origin, plus `profile.json` and `geometry.json`. `add-flair` registers a same-session FLAIR into that space.
 
 ### Quality gates (the run stops with a non-zero exit code)
 
@@ -43,6 +44,7 @@ This tool uses the patient's own MRI instead:
 | putamen VOI per side (a collapsed segmentation) | < 4.0 mL stops | `--min-putamen-ml` |
 | any striatal VOI or the occipital reference outside the SPECT support | > 1 % stops | `--max-outside-fov` |
 | folder with several DICOM series and none chosen | stop, lists them | `--<modality>-series UID` |
+| SPECT-to-anatomy alignment: caudate-only best-fit shift > 3 mm | **warn** (loud, run continues) | `alignment_qc.warn_shift_mm`, `alignment_qc.gate: "stop"` |
 
 The cerebellar (secondary) reference is not gated. The fraction of each region outside the SPECT support is in `results.json`.
 
@@ -103,7 +105,7 @@ to `--params`.
 git clone <this repo> && cd datscan-mri-guided
 python3.12 -m venv .venv
 .venv/bin/pip install -e '.[test]'
-.venv/bin/python -m pytest          # synthetic-phantom controls, about 3 minutes
+.venv/bin/python -m pytest          # synthetic-phantom controls, about 5 minutes
 ```
 
 Python 3.12 or later.
@@ -115,8 +117,14 @@ lists and weights come from the `freesurfer/freesurfer` repository at tag
 `v7.4.1` (weights from its git-annex store, checked against the SHA-256 in the
 annex key), and run in a separate Python 3.11 venv:
 
+`<SYNTHSEG_HOME>` below stands for the folder you install it into (any path).
+Point the pipeline at it with `export DATSCAN_SYNTHSEG_HOME=<SYNTHSEG_HOME>`,
+or put the path in `segmenter.synthseg.home` of your params JSON.
+`configs/reference_case.json` ships with the literal placeholder, and a run
+stops with a clear message until the variable is set.
+
 ```bash
-H=~/code/_vendor/synthseg-fs7.4.1; mkdir -p $H/models && cd $H
+H=<SYNTHSEG_HOME>; mkdir -p $H/models && cd $H
 for f in mri_synthseg synthseg_{segmentation,qc}_{labels,names}_2.0.npy synthseg_denoiser_labels_2.0.npy \
          synthseg_topological_classes_2.0.npy synthseg_parcellation_{labels,names}.npy; do
   curl -sfLo models/$f https://raw.githubusercontent.com/freesurfer/freesurfer/v7.4.1/mri_synthseg/$f; done
@@ -169,6 +177,7 @@ MRI acquired 10.5 months earlier. The data are private and not in this repo.
 With the DICOM export at hand:
 
 ```bash
+export DATSCAN_SYNTHSEG_HOME=<SYNTHSEG_HOME>
 .venv/bin/datscan-mri run --spect <SPECT IRAC-AC series> --ct <CT 2.0 mm H31s series> \
   --mri <MPRAGE series> --params configs/reference_case.json --out out/
 ```
@@ -229,6 +238,47 @@ The simulated putamen is now the SynthSeg putamen itself. The grey-core step
 rejected its Otsu split (1.2 / 1.4 mL) and the 5- and 6-mL caps do not bind, so
 the anatomical-size sweep only spans 4.0 mL to the VOI size (4.2 / 4.5 mL).
 
+### Alignment QC, reference case (v3 run, added afterwards)
+
+Added to the finished v3 run with `scripts/add_alignment_qc.py` (the SPECT
+resampled again matched the run's grid exactly, and the zero-shift P/A equals
+the v3 result to 1e-9). Shifts are the movement applied to the SPECT, in mm
+(x = patient left, y = posterior, z = superior). The fits against the
+normal-gradient and the uniform null gave the same shifts.
+
+| fit | best shift (x, y, z) mm | correlation (at 0 shift) | P/A R | P/A L | gap R | gap L | loss called R / L |
+|---|---|---|---|---|---|---|---|
+| as registered | 0, 0, 0 | | 0.562 | 0.497 | −0.123 | −0.228 | yes / yes |
+| caudate only (primary) | −1, +4, +1 | 0.854 (0.792) | 0.636 | 0.635 | −0.049 | −0.090 | no (by 0.001) / yes |
+| caudate + anterior putamen | −1, +4, 0 | 0.895 (0.837) | 0.608 | 0.605 | −0.077 | −0.120 | yes / yes |
+| whole striatum | −1, +5, +1 | 0.890 (0.819) | 0.660 | 0.683 | −0.025 | −0.042 | no / no |
+
+The SPECT matches the simulated uptake pattern best about 4 mm further
+posterior than registered, which trips the 3-mm warning. Every fit raises P/A
+by 0.05-0.19. At the primary (caudate-only) fit the right side sits on the
+decision line and the left is still called. Over the combined-translation
+grid (±4 mm, step 2, all axes) the measured P/A spans R 0.41-0.82 and L
+0.38-0.80, so a few mm of SPECT offset can move the ratio across the whole
+range between "loss" and "normal".
+
+This does not prove the SPECT is misregistered. The check compares the SPECT
+with the SIMULATED anatomy, so it also reacts when the simulated uptake sits in
+the wrong place. On the phantom with perfect registration, the threshold-method
+caudate VOI sits about 3.5 mm posterior of the true caudate, and the check
+reported a +4 to +5 mm posterior shift. With the true caudate VOIs it reported
+0-1 mm. A real caudate binds more in the head than in the body and tail, while
+the simulation binds it uniformly, and that also pushes the fit posterior. The
+whole-striatum fit is additionally pulled posterior by any real posterior
+putamen loss. The result is therefore: either the SPECT is about 4 mm
+anterior of the MRI anatomy, or the caudate model is displaced by about that
+much, and the two cannot be told apart from this scan. Until that is resolved,
+the posterior-loss call on this case must be read as alignment-dependent.
+
+(An earlier quick check gave the same shifts and P/A 0.644/0.643, 0.615/0.612
+and 0.669/0.691. It kept the occipital reference at its unshifted value. The
+package moves the whole SPECT, so the reference is re-measured, which is 6-8 %
+higher at these shifts and lowers P/A by 0.007-0.009.)
+
 ### Results, v2 (threshold VOIs)
 
 Kept for comparison as the v2 run, reproduced by `--segmenter threshold`.
@@ -257,6 +307,8 @@ the far x/y edge.
 * **MRI not contemporaneous.** In the reference case the MRI is 10.5 months older than the SPECT. Atrophy in between is not modelled.
 * **The AC is placed by hand.** Moving the anterior/posterior split ±4 mm is part of the sweep. The phantom tests give the pipeline an AC that is 2-3 mm off.
 * **Rigid registration only.** Ventricle Dice (gated at 0.6) and the overlay figure are the QC. There is no non-linear correction.
+* **SPECT-to-anatomy alignment is checked only against the model.** The alignment QC fits the SPECT to the simulated null. A displaced caudate VOI, or real caudate binding that is not uniform (head higher than body and tail), looks the same as a misregistered SPECT. On the phantom the threshold caudate VOI alone produced a +4 mm "shift" with perfect registration. The fit uses integer-mm translations only (no rotation) and ignores the FOV mask inside the fit mask. The default is to warn, not stop. On the reference case the warning fires (about 4 mm), and the posterior-loss call depends on it (see the table above).
+* **P/A is very sensitive to a front-to-back offset.** On the reference case a combined SPECT shift of up to ±4 mm moves the measured P/A over 0.41-0.82 (R) and 0.38-0.80 (L). The 12 single-axis ±2-mm perturbations understate this.
 * The analysis grid follows the CT axes, not AC-PC. "Coronal slabs" are CT-coronal, about 4° off AC-PC in the reference case.
 * On the reference case the SPECT's axial field of view cuts 7 % of the cerebellar reference, so the occipital reference is primary.
 
@@ -283,6 +335,15 @@ Controls (decision rule above, 3 noise realisations averaged):
 | (c) all striatal binding × 0.6 | 1.00 | P/A within 0.05 of (a), absolute SBR down > 25 %, no loss called |
 | (d) normal gradient | 0.84 | no loss called |
 | (e) normal gradient, posterior VOI +4 / +6 mm, whole VOI ±2 mm | 0.84 | no loss called, and the expectation falls with posterior oversizing, as the measurement does |
+
+Alignment QC (`tests/test_alignment.py`): with the true caudate as the VOI,
+the phantom SPECT moved 0 or 4 mm posterior is recovered within 1 mm on every
+axis by the caudate-only fit, for a normal gradient and for a posterior loss.
+Found (x, y, z): unshifted (0, 0, +1) and (0, +1, 0) mm, moved 4 mm (0, −4, +1)
+and (0, −3, 0) mm. The posterior loss pulls the caudate fit by at most 1 mm. With the threshold caudate VOI (3.5 mm posterior of the truth) the
+check reports a +4 to +5 mm shift at perfect registration, and still recovers a
+known 4-mm shift relative to that. The zero-shift P/A equals the decision value
+exactly, the warn and stop gates are tested, and the profile scaling is unit-tested.
 
 Also tested: registration error under 1 mm, putamen VOI Dice above 0.7 and
 grey-core Dice above 0.8 against the truth, identical results when the CT is

@@ -81,3 +81,17 @@ def trimmed_post_ant(img, lab, valid, y_index, trim_mm, ref_code=13):
         Pv = (img[keep].mean() - ref) / ref
         out[side] = dict(post_ant=float(Pv / A), post=float(Pv), ant=float(A), cut_index=int(yend - trim_mm))
     return out
+
+
+def scale_to_anterior(meas, sim, x, n):
+    """Scale a simulated slab profile to the measured one by the voxel-weighted
+    mean over the ANTERIOR window (slab centres < 0 mm, i.e. anterior to the
+    AC), where neither curve is NaN. Weights are the slab voxel counts `n`.
+    Returns (scaled list, factor); NaN factor if no anterior slab is usable.
+    (Scaling to the peak slab would anchor on the front tip.)"""
+    meas, sim, x, n = (np.asarray(v, float) for v in (meas, sim, x, n))
+    w = np.where((x < 0) & np.isfinite(meas) & np.isfinite(sim), n, 0.0)
+    if w.sum() <= 0:
+        return [float("nan")] * len(sim), float("nan")
+    k = float((w * np.nan_to_num(meas)).sum() / (w * np.nan_to_num(sim)).sum())
+    return (sim * k).tolist(), k

@@ -5,16 +5,21 @@ alignment, the anterior/posterior split or the VOI size are slightly off?
   +/-2 mm along each axis, +/-2 degrees about each axis (centre = AC).
 * Anterior/posterior split moved +/-4 mm.
 * VOIs eroded by 1 mm (eroded voxels reassigned to white matter).
+* Combined SPECT translations: every integer shift in {-4, -2, 0, 2, 4} mm on
+  all three axes at once (125 shifts, measured ratio only).
 Uncorrected and GTM-corrected (11 mm) values are reported. These ranges are
 of the MEASURED ratio only; the VOI-size sweep against both simulated nulls
 is in `pipeline.analyze` (results["sweep"]).
 """
 from __future__ import annotations
 
+import itertools
+
 import numpy as np
 import SimpleITK as sitk
 from scipy import ndimage as nd
 
+from .alignment import shifted_crop
 from .profile import metrics, voi_means
 from .pvc import gtm, transfer_matrix
 from .segment import GTM_IDS
@@ -74,3 +79,17 @@ def ranges(rob, key="uncorrected", ref="occ"):
         allv = rig + [v[key][ref][side]["post_ant"] for v in rob["variants"].values()]
         res[side] = {"rigid_only": [min(rig), max(rig)], "all": [min(allv), max(allv)]}
     return res
+
+
+def combined_shift_grid(sg_full, fov_full, crop, lab, measure, mm: int, step: int) -> dict:
+    """Measured P/A over every combined integer translation in
+    {-mm..mm step `step`}^3 (all three axes at once)."""
+    vals = list(range(-mm, mm + 1, step))
+    rows = []
+    for d in itertools.product(vals, repeat=3):
+        pa = measure(shifted_crop(sg_full, crop, d, 0), lab, shifted_crop(fov_full, crop, d, False))
+        rows.append({"shift_mm_xyz": [d[2], d[1], d[0]], "R": pa[0], "L": pa[1]})
+    return {"note": f"combined SPECT translation, all axes {-mm}..{mm} mm step {step} ({len(rows)} shifts), "
+                    "measured P/A (uncorrected, occipital reference)",
+            "range": {sd: [min(r[sd] for r in rows), max(r[sd] for r in rows)] for sd in "RL"},
+            "grid": rows}
